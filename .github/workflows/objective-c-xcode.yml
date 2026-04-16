@@ -21,11 +21,7 @@ jobs:
       - name: Install Dependencies
         run: |
           brew install bison flex gettext make cmake
-          
-          # Force pip to install despite the managed environment error
-          pip3 install colorama prompt-toolkit pygments cryptography --break-system-packages
-          
-          # Export the keg-only tools to the GitHub Actions PATH
+          pip3 install colorama prompt-toolkit pygments cryptography setuptools --break-system-packages
           echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/flex/bin" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/make/libexec/gnubin" >> $GITHUB_PATH
@@ -37,11 +33,7 @@ jobs:
           cp bs-custom-files/gadget-glue.c subprojects/frida-core/lib/gadget/gadget-glue.c
 
       - name: Compile Gadget
-        run: |
-          export FRIDA_PYTHON=disabled
-          export FRIDA_NODE=disabled
-          export FRIDA_TOOLS=disabled
-          make gadget-ios
+        run: make gadget-ios
 
       - name: Build Vault and Loader
         run: |
@@ -54,14 +46,9 @@ jobs:
         run: |
           mkdir -p gadget.framework
           mkdir -p gadget.framework/ss
-          
-          # Copy the compiled gadget binary
           cp build/frida-ios-arm64/lib/frida/64/frida-gadget.dylib gadget.framework/gadget
-          
-          # Copy the vault, loader, and plist
           cp bs-custom-files/.w gadget.framework/
           cp bs-custom-files/.x gadget.framework/
-          cp bs-custom-files/info.plist gadget.framework/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
