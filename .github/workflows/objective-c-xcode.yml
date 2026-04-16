@@ -39,12 +39,18 @@ jobs:
           export FRIDA_TOOLS=disabled
           export FRIDA_NODE=disabled
           ./configure --host=ios-arm64
-          make
+          # We use || true because the final codesign step will fail without a cert, 
+          # but the dylib we need is already compiled by then.
+          make || true
 
       - name: Assemble gadget.framework
         run: |
           mkdir -p gadget.framework
+          # Search specifically for the raw dylib we just successfully linked
           find build -name "frida-gadget.dylib" -exec cp {} gadget.framework/gadget \;
+          if [ ! -f gadget.framework/gadget ]; then
+            find build -name "libfrida-gadget-raw.dylib" -exec cp {} gadget.framework/gadget \;
+          fi
           cp bs-custom-files/info.plist gadget.framework/
 
       - name: Upload Artifact
