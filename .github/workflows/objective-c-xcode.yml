@@ -34,9 +34,7 @@ jobs:
 
       - name: Compile Gadget for iOS
         run: |
-          export FRIDA_PYTHON=disabled
-          export FRIDA_TOOLS=disabled
-          export FRIDA_NODE=disabled
+          export CFLAGS="-DFRIDA_LIBDIR_NAME=\\\"frida\\\""
           ./configure --host=ios-arm64
           make
 
