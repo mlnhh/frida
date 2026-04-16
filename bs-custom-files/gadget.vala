@@ -12,11 +12,6 @@ namespace Frida.Gadget {
     public void unload() {
     }
 
-    [CCode (cname = "frida_gadget_environment_init")]
-    public void environment_init() {
-        // Provided to satisfy the Objective-C caller in gadget-darwin.m
-    }
-
     [CCode (cname = "_frida_gadget_on_pending_thread_garbage")]
     public void on_pending_thread_garbage(void* data) {
     }
