@@ -9,7 +9,6 @@ extern void Stage_addChild(void* stage, void* child);
 
 class SetArg0To0Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        // Cast the generic cpu_context to the Arm64 specific struct
         Arm64CpuContext* cpu = (Arm64CpuContext*) context.cpu_context;
         cpu->x[0] = 0;
     }
@@ -43,8 +42,7 @@ public class FridaGadget : Object {
         }
     }
     construct {
-        // Correct way to get base address based on your VAPI
-        var laser = Process.find_module_by_name("laser");
+        var laser = Gum.Process.find_module_by_name("laser");
         if (laser == null) return;
         
         Address base_addr = laser.range.base_address;
@@ -65,6 +63,7 @@ public class FridaGadget : Object {
         interceptor.attach((void*)(base_addr + 0x1011e214c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101e510), arg0_0);
+        interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0); 
         interceptor.attach((void*)(base_addr + 0x1010ac84c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101ab4c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x1011dfb24), arg0_0);
@@ -81,7 +80,6 @@ public class FridaGadget : Object {
     }
 
     private void patch_ret(void* address) {
-        // Explicitly using Gum.Memory and the PatchApplyFunc signature
         Gum.Memory.patch_code(address, 4, (mem) => {
             var writer = new Arm64Writer(mem);
             writer.put_ret();
