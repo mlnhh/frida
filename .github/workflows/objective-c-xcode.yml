@@ -1,0 +1,56 @@
+name: Build BSRE Gadget
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: |
+          brew install bison flex gettext make cmake
+          pip3 install colorama prompt-toolkit pygments cryptography
+
+      - name: Inject Custom Source Files
+        run: |
+          cp bs-custom-files/gadget.vala subprojects/frida-core/lib/gadget/gadget.vala
+          cp bs-custom-files/gadget-darwin.m subprojects/frida-core/lib/gadget/gadget-darwin.m
+          cp bs-custom-files/gadget-glue.c subprojects/frida-core/lib/gadget/gadget-glue.c
+
+      - name: Compile Gadget
+        run: make gadget-ios
+
+      - name: Build Vault and Loader
+        run: |
+          cd bs-custom-files
+          python3 build_vault.py
+          clang -dynamiclib -o .x loader.m -framework Foundation
+          cd ..
+
+      - name: Assemble gadget.framework
+        run: |
+          mkdir -p gadget.framework
+          
+          cp build/frida-ios-arm64/lib/frida/64/frida-gadget.dylib gadget.framework/gadget
+          cp bs-custom-files/.w gadget.framework/
+          cp bs-custom-files/.x gadget.framework/
+          cp bs-custom-files/info.plist gadget.framework/
+          
+          mkdir -p gadget.framework/ss
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gadget.framework
+          path: gadget.framework
