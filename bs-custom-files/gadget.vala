@@ -1,26 +1,24 @@
 using GLib;
 using Gum;
 
-// 1. Declare your real assets as extern so the linker resolves them
 extern void** Stage_instance;
 extern void* StringTable_getMovieClip(string file, string name);
 extern void DisplayObject_setXY(void* obj, float x, float y);
 extern void DisplayObject_setScale(void* obj, float x, float y);
 extern void Stage_addChild(void* stage, void* child);
 
-// 2. Define listeners for the Interceptor callbacks
 class SetArg0To0Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        // Equivalent to args[0] = 0;
-        context.set_nth_argument(0, (void*)0);
+        var cpu = context.get_cpu_context();
+        cpu.x[0] = 0;
     }
     public void on_leave(InvocationContext context) {}
 }
 
 class SetArg0To1Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        // Equivalent to args[0] = 1;
-        context.set_nth_argument(0, (void*)1);
+        var cpu = context.get_cpu_context();
+        cpu.x[0] = 1;
     }
     public void on_leave(InvocationContext context) {}
 }
@@ -49,19 +47,17 @@ public class FridaGadget : Object {
     }
 
     construct {
-        var base_addr = Gum.Module.get_base_address("laser");
-        var interceptor = Gum.Interceptor.obtain();
+        var base_addr = Module.find_base_address("laser");
+        var interceptor = Interceptor.obtain();
 
         var arg0_0 = new SetArg0To0Listener();
         var arg0_1 = new SetArg0To1Listener();
 
-        // Apply Memory Patches
         patch_ret((void*)(base_addr + 0x101010da4));
         patch_ret((void*)(base_addr + 0x10101d0d4));
         patch_ret((void*)(base_addr + 0x100f10e38));
         patch_ret((void*)(base_addr + 0x100a8991c));
 
-        // Apply Interceptor Hooks
         interceptor.attach((void*)(base_addr + 0x101016ba8), arg0_0);
         interceptor.attach((void*)(base_addr + 0x1011e1f54), arg0_0);
         interceptor.attach((void*)(base_addr + 0x1011e0170), arg0_0);
@@ -70,19 +66,13 @@ public class FridaGadget : Object {
         interceptor.attach((void*)(base_addr + 0x1011e214c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101e510), arg0_0);
-        
-        // (Note: 0x10101bdfc was in your original code twice, so it is attached twice here)
         interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0); 
-        
         interceptor.attach((void*)(base_addr + 0x1010ac84c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101ab4c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x100004440), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10007ece8), arg0_0);
         interceptor.attach((void*)(base_addr + 0x1011dfb24), arg0_0);
 
-        // --- UI INJECTION LOGIC ---
-        
-        // Equivalent to: Stage_instance.readPointer()
         void* stage = *Stage_instance; 
         
         var menuBtn = StringTable_getMovieClip("sc/ui.sc", "menu_button");
@@ -91,24 +81,20 @@ public class FridaGadget : Object {
         DisplayObject_setScale(menuBtn, 1.35f, 1.35f);
         Stage_addChild(stage, menuBtn);
 
-        // Equivalent to: menuBtn.readPointer().add(0x350).readPointer()
         void* vtable_addr = *((void**) menuBtn);
         void* btnHandler = *((void**) ((uint8*) vtable_addr + 0x350));
 
         interceptor.attach(btnHandler, new MenuListener(this));
     }
 
-    // Helper method to keep the code clean and properly initialize the Arm64Writer
     private void patch_ret(void* address) {
-        Gum.Memory.patch_code(address, 4, (code, size) => {
-            var writer = new Gum.Arm64Writer(code);
+        Memory.patch_code(address, 4, (code) => {
+            var writer = new Arm64Writer(code);
             writer.put_ret();
             writer.flush();
-            writer.clear();
         });
     }
 
     public void openNLBRMenu() {
-        // Menu logic goes here
     }
 }
