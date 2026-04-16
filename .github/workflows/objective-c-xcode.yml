@@ -45,7 +45,6 @@ jobs:
         run: |
           mkdir -p gadget.framework
           find build -name "frida-gadget.dylib" -exec cp {} gadget.framework/gadget \;
-          cp bs-custom-files/info.plist gadget.framework/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
