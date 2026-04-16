@@ -9,16 +9,16 @@ extern void Stage_addChild(void* stage, void* child);
 
 class SetArg0To0Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        CpuContext* cpu = context.get_registers();
-        cpu->x[0] = 0;
+        var cpu = context.registers;
+        cpu.pc = 0; 
     }
     public void on_leave(InvocationContext context) {}
 }
 
 class SetArg0To1Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        CpuContext* cpu = context.get_registers();
-        cpu->x[0] = 1;
+        var cpu = context.registers;
+        cpu.pc = 1;
     }
     public void on_leave(InvocationContext context) {}
 }
@@ -47,7 +47,7 @@ public class FridaGadget : Object {
     }
 
     construct {
-        var base_addr = Gum.Process.find_base_address("laser");
+        var base_addr = Module.find_base_address("laser");
         var interceptor = Interceptor.obtain();
 
         var arg0_0 = new SetArg0To0Listener();
