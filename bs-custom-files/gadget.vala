@@ -5,15 +5,11 @@ namespace Frida.Gadget {
 
     [CCode (cname = "frida_gadget_load")]
     public void load(MemoryRange? mapped_range, string? config_data, int* result) {
-        FridaGadget.main();
+        FridaGadget.boot();
     }
 
     [CCode (cname = "frida_gadget_unload")]
     public void unload() {
-    }
-
-    [CCode (cname = "frida_gadget_environment_init")]
-    public void environment_init() {
     }
 
     [CCode (cname = "_frida_gadget_on_pending_thread_garbage")]
@@ -39,7 +35,7 @@ namespace Frida.Gadget {
     public class FridaGadget : Object {
         private static FridaGadget instance;
 
-        public static void main() {
+        public static void boot() {
             if (instance == null) {
                 instance = new FridaGadget();
             }
