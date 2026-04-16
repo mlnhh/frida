@@ -9,16 +9,16 @@ extern void Stage_addChild(void* stage, void* child);
 
 class SetArg0To0Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        var cpu = context.get_cpu_context();
-        cpu.x[0] = 0;
+        CpuContext* cpu = context.get_registers();
+        cpu->x[0] = 0;
     }
     public void on_leave(InvocationContext context) {}
 }
 
 class SetArg0To1Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        var cpu = context.get_cpu_context();
-        cpu.x[0] = 1;
+        CpuContext* cpu = context.get_registers();
+        cpu->x[0] = 1;
     }
     public void on_leave(InvocationContext context) {}
 }
@@ -47,7 +47,7 @@ public class FridaGadget : Object {
     }
 
     construct {
-        var base_addr = Module.find_base_address("laser");
+        var base_addr = Gum.Process.find_base_address("laser");
         var interceptor = Interceptor.obtain();
 
         var arg0_0 = new SetArg0To0Listener();
@@ -69,8 +69,6 @@ public class FridaGadget : Object {
         interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0); 
         interceptor.attach((void*)(base_addr + 0x1010ac84c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101ab4c), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x100004440), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x10007ece8), arg0_0);
         interceptor.attach((void*)(base_addr + 0x1011dfb24), arg0_0);
 
         void* stage = *Stage_instance; 
@@ -88,7 +86,7 @@ public class FridaGadget : Object {
     }
 
     private void patch_ret(void* address) {
-        Memory.patch_code(address, 4, (code) => {
+        Gum.Memory.patch_code(address, 4, (code) => {
             var writer = new Arm64Writer(code);
             writer.put_ret();
             writer.flush();
