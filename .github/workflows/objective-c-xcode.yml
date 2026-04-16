@@ -37,7 +37,11 @@ jobs:
           cp bs-custom-files/gadget-glue.c subprojects/frida-core/lib/gadget/gadget-glue.c
 
       - name: Compile Gadget
-        run: make gadget-ios
+        run: |
+          export FRIDA_PYTHON=disabled
+          export FRIDA_NODE=disabled
+          export FRIDA_TOOLS=disabled
+          make gadget-ios
 
       - name: Build Vault and Loader
         run: |
