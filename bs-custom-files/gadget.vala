@@ -9,6 +9,20 @@ extern void Stage_addChild(void* stage, void* child);
 
 namespace Frida.Gadget {
 
+    public void load(MemoryRange? mapped_range, string? config_data, int* result) {
+        FridaGadget.main();
+    }
+
+    public void unload() {
+        // Handle unload if needed
+    }
+
+    public void environment_init() {
+    }
+
+    public void on_pending_thread_garbage(void* data) {
+    }
+
     class SetArg0To0Listener : Object, InvocationListener {
         public void on_enter(InvocationContext context) {
             Arm64CpuContext* cpu = (Arm64CpuContext*) context.cpu_context;
@@ -38,6 +52,12 @@ namespace Frida.Gadget {
 
     public class FridaGadget : Object {
         private static FridaGadget instance;
+
+        public static void main() {
+            if (instance == null) {
+                instance = new FridaGadget();
+            }
+        }
 
         construct {
             var laser = Gum.Process.find_module_by_name("laser");
@@ -86,24 +106,5 @@ namespace Frida.Gadget {
         }
 
         public void openNLBRMenu() {}
-
-        // Entry point for the C code
-        public static void load(MemoryRange? mapped_range, string? config_data, int* result) {
-            if (instance == null) {
-                instance = new FridaGadget();
-            }
-        }
-
-        public static void unload() {
-            instance = null;
-        }
-        
-        public static void environment_init() {
-            // Placeholder for C code requirement
-        }
-        
-        public static void on_pending_thread_garbage(void* data) {
-            // Fixes the garbage handler error
-        }
     }
 }
