@@ -1,12 +1,6 @@
 using GLib;
 using Gum;
 
-extern void** Stage_instance;
-extern void* StringTable_getMovieClip(string file, string name);
-extern void DisplayObject_setXY(void* obj, float x, float y);
-extern void DisplayObject_setScale(void* obj, float x, float y);
-extern void Stage_addChild(void* stage, void* child);
-
 namespace Frida.Gadget {
 
     [CCode (cname = "frida_gadget_load")]
@@ -38,17 +32,6 @@ namespace Frida.Gadget {
         public void on_enter(InvocationContext context) {
             Arm64CpuContext* cpu = (Arm64CpuContext*) context.cpu_context;
             cpu->x[0] = 1;
-        }
-        public void on_leave(InvocationContext context) {}
-    }
-
-    class MenuListener : Object, InvocationListener {
-        private FridaGadget gadget;
-        public MenuListener(FridaGadget gadget) {
-            this.gadget = gadget;
-        }
-        public void on_enter(InvocationContext context) {
-            gadget.openNLBRMenu();
         }
         public void on_leave(InvocationContext context) {}
     }
@@ -88,16 +71,6 @@ namespace Frida.Gadget {
             interceptor.attach((void*)(base_addr + 0x1010ac84c), arg0_0);
             interceptor.attach((void*)(base_addr + 0x10101ab4c), arg0_0);
             interceptor.attach((void*)(base_addr + 0x1011dfb24), arg0_0);
-
-            void* stage = *Stage_instance; 
-            var menuBtn = StringTable_getMovieClip("sc/ui.sc", "menu_button");
-            DisplayObject_setXY(menuBtn, 40.0f, 40.0f);
-            DisplayObject_setScale(menuBtn, 1.35f, 1.35f);
-            Stage_addChild(stage, menuBtn);
-
-            void* vtable_addr = *((void**) menuBtn);
-            void* btnHandler = *((void**) ((uint8*) vtable_addr + 0x350));
-            interceptor.attach(btnHandler, new MenuListener(this));
         }
 
         private void patch_ret(void* address) {
@@ -107,7 +80,5 @@ namespace Frida.Gadget {
                 writer.flush();
             });
         }
-
-        public void openNLBRMenu() {}
     }
 }
