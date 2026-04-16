@@ -32,8 +32,13 @@ jobs:
           cp bs-custom-files/gadget-darwin.m subprojects/frida-core/lib/gadget/gadget-darwin.m
           cp bs-custom-files/gadget-glue.c subprojects/frida-core/lib/gadget/gadget-glue.c
 
-      - name: Compile Gadget
-        run: make core-ios-arm64
+      - name: Compile Gadget for iOS
+        run: |
+          # 1. Configure the build system explicitly for iOS arm64
+          ./configure --host=ios-arm64
+          
+          # 2. Build only the core components to bypass the Python/Node binding errors
+          make core
 
       - name: Build Vault and Loader
         run: |
@@ -46,9 +51,13 @@ jobs:
         run: |
           mkdir -p gadget.framework
           mkdir -p gadget.framework/ss
-          cp build/frida-ios-arm64/lib/frida/64/frida-gadget.dylib gadget.framework/gadget
+          
+          # Find the compiled dylib (your meson.build outputs it as gadget.dylib) and copy it
+          find build -name "gadget.dylib" -exec cp {} gadget.framework/gadget \;
+          
           cp bs-custom-files/.w gadget.framework/
           cp bs-custom-files/.x gadget.framework/
+          cp bs-custom-files/info.plist gadget.framework/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
