@@ -9,47 +9,46 @@ extern void Stage_addChild(void* stage, void* child);
 
 class SetArg0To0Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        var cpu = context.registers;
-        cpu.pc = 0; 
+        // Cast the generic cpu_context to the Arm64 specific struct
+        Arm64CpuContext* cpu = (Arm64CpuContext*) context.cpu_context;
+        cpu->x[0] = 0;
     }
     public void on_leave(InvocationContext context) {}
 }
 
 class SetArg0To1Listener : Object, InvocationListener {
     public void on_enter(InvocationContext context) {
-        var cpu = context.registers;
-        cpu.pc = 1;
+        Arm64CpuContext* cpu = (Arm64CpuContext*) context.cpu_context;
+        cpu->x[0] = 1;
     }
     public void on_leave(InvocationContext context) {}
 }
 
 class MenuListener : Object, InvocationListener {
     private FridaGadget gadget;
-    
     public MenuListener(FridaGadget gadget) {
         this.gadget = gadget;
     }
-    
     public void on_enter(InvocationContext context) {
         gadget.openNLBRMenu();
     }
-    
     public void on_leave(InvocationContext context) {}
 }
 
 public class FridaGadget : Object {
     private static FridaGadget instance;
-
     public static void main() {
         if (instance == null) {
             instance = new FridaGadget();
         }
     }
-
     construct {
-        var base_addr = Module.find_base_address("laser");
+        // Correct way to get base address based on your VAPI
+        var laser = Process.find_module_by_name("laser");
+        if (laser == null) return;
+        
+        Address base_addr = laser.range.base_address;
         var interceptor = Interceptor.obtain();
-
         var arg0_0 = new SetArg0To0Listener();
         var arg0_1 = new SetArg0To1Listener();
 
@@ -66,33 +65,29 @@ public class FridaGadget : Object {
         interceptor.attach((void*)(base_addr + 0x1011e214c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101e510), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0); 
         interceptor.attach((void*)(base_addr + 0x1010ac84c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x10101ab4c), arg0_0);
         interceptor.attach((void*)(base_addr + 0x1011dfb24), arg0_0);
 
         void* stage = *Stage_instance; 
-        
         var menuBtn = StringTable_getMovieClip("sc/ui.sc", "menu_button");
-        
         DisplayObject_setXY(menuBtn, 40.0f, 40.0f);
         DisplayObject_setScale(menuBtn, 1.35f, 1.35f);
         Stage_addChild(stage, menuBtn);
 
         void* vtable_addr = *((void**) menuBtn);
         void* btnHandler = *((void**) ((uint8*) vtable_addr + 0x350));
-
         interceptor.attach(btnHandler, new MenuListener(this));
     }
 
     private void patch_ret(void* address) {
-        Gum.Memory.patch_code(address, 4, (code) => {
-            var writer = new Arm64Writer(code);
+        // Explicitly using Gum.Memory and the PatchApplyFunc signature
+        Gum.Memory.patch_code(address, 4, (mem) => {
+            var writer = new Arm64Writer(mem);
             writer.put_ret();
             writer.flush();
         });
     }
 
-    public void openNLBRMenu() {
-    }
+    public void openNLBRMenu() {}
 }
