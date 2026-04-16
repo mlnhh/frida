@@ -9,17 +9,20 @@ extern void Stage_addChild(void* stage, void* child);
 
 namespace Frida.Gadget {
 
+    [CCode (cname = "frida_gadget_load")]
     public void load(MemoryRange? mapped_range, string? config_data, int* result) {
         FridaGadget.main();
     }
 
+    [CCode (cname = "frida_gadget_unload")]
     public void unload() {
-        // Handle unload if needed
     }
 
+    [CCode (cname = "frida_gadget_environment_init")]
     public void environment_init() {
     }
 
+    [CCode (cname = "_frida_gadget_on_pending_thread_garbage")]
     public void on_pending_thread_garbage(void* data) {
     }
 
