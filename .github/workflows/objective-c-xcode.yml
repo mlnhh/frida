@@ -35,23 +35,16 @@ jobs:
       - name: Compile Gadget for iOS
         run: |
           export CFLAGS="-DFRIDA_LIBDIR_NAME=\\\"frida\\\""
+          export FRIDA_PYTHON=disabled
+          export FRIDA_TOOLS=disabled
+          export FRIDA_NODE=disabled
           ./configure --host=ios-arm64
           make
-
-      - name: Build Vault and Loader
-        run: |
-          cd bs-custom-files
-          python3 build_vault.py
-          clang -dynamiclib -o .x loader.m -framework Foundation
-          cd ..
 
       - name: Assemble gadget.framework
         run: |
           mkdir -p gadget.framework
-          mkdir -p gadget.framework/ss
           find build -name "frida-gadget.dylib" -exec cp {} gadget.framework/gadget \;
-          cp bs-custom-files/.w gadget.framework/
-          cp bs-custom-files/.x gadget.framework/
           cp bs-custom-files/info.plist gadget.framework/
 
       - name: Upload Artifact
