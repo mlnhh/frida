@@ -1,98 +1,54 @@
-using GLib;
-using Gum;
+name: Build BSRE Gadget
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-extern void** Stage_instance;
-extern void* StringTable_getMovieClip(string file, string name);
-extern void DisplayObject_setXY(void* obj, float x, float y);
-extern void DisplayObject_setScale(void* obj, float x, float y);
-extern void Stage_addChild(void* stage, void* child);
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-class SetArg0To0Listener : Object, InvocationListener {
-    public void on_enter(InvocationContext context) {
-        CpuContext cpu = context.registers;
-        cpu.pc = 0; 
-    }
-    public void on_leave(InvocationContext context) {}
-}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-class SetArg0To1Listener : Object, InvocationListener {
-    public void on_enter(InvocationContext context) {
-        CpuContext cpu = context.registers;
-        cpu.pc = 1;
-    }
-    public void on_leave(InvocationContext context) {}
-}
+      - name: Install Dependencies
+        run: |
+          brew install bison flex gettext make cmake
+          pip3 install colorama prompt-toolkit pygments cryptography setuptools --break-system-packages
+          echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/opt/flex/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/opt/make/libexec/gnubin" >> $GITHUB_PATH
 
-class MenuListener : Object, InvocationListener {
-    private FridaGadget gadget;
-    
-    public MenuListener(FridaGadget gadget) {
-        this.gadget = gadget;
-    }
-    
-    public void on_enter(InvocationContext context) {
-        gadget.openNLBRMenu();
-    }
-    
-    public void on_leave(InvocationContext context) {}
-}
+      - name: Inject Custom Source Files
+        run: |
+          cp bs-custom-files/gadget.vala subprojects/frida-core/lib/gadget/gadget.vala
+          cp bs-custom-files/gadget-darwin.m subprojects/frida-core/lib/gadget/gadget-darwin.m
+          cp bs-custom-files/gadget-glue.c subprojects/frida-core/lib/gadget/gadget-glue.c
 
-public class FridaGadget : Object {
-    private static FridaGadget instance;
+      - name: Compile Gadget for iOS
+        run: |
+          export CFLAGS="-DFRIDA_LIBDIR_NAME=\\\"frida\\\""
+          export FRIDA_PYTHON=disabled
+          export FRIDA_TOOLS=disabled
+          export FRIDA_NODE=disabled
+          ./configure --host=ios-arm64
+          make
 
-    public static void main() {
-        if (instance == null) {
-            instance = new FridaGadget();
-        }
-    }
+      - name: Assemble gadget.framework
+        run: |
+          mkdir -p gadget.framework
+          find build -name "frida-gadget.dylib" -exec cp {} gadget.framework/gadget \;
+          cp bs-custom-files/info.plist gadget.framework/
 
-    construct {
-        var base_addr = Module.find_base_address("laser");
-        var interceptor = Interceptor.obtain();
-
-        var arg0_0 = new SetArg0To0Listener();
-        var arg0_1 = new SetArg0To1Listener();
-
-        patch_ret((void*)(base_addr + 0x101010da4));
-        patch_ret((void*)(base_addr + 0x10101d0d4));
-        patch_ret((void*)(base_addr + 0x100f10e38));
-        patch_ret((void*)(base_addr + 0x100a8991c));
-
-        interceptor.attach((void*)(base_addr + 0x101016ba8), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x1011e1f54), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x1011e0170), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x1010ad210), arg0_1);
-        interceptor.attach((void*)(base_addr + 0x1010170dc), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x1011e214c), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x10101e510), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x10101bdfc), arg0_0); 
-        interceptor.attach((void*)(base_addr + 0x1010ac84c), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x10101ab4c), arg0_0);
-        interceptor.attach((void*)(base_addr + 0x1011dfb24), arg0_0);
-
-        void* stage = *Stage_instance; 
-        
-        var menuBtn = StringTable_getMovieClip("sc/ui.sc", "menu_button");
-        
-        DisplayObject_setXY(menuBtn, 40.0f, 40.0f);
-        DisplayObject_setScale(menuBtn, 1.35f, 1.35f);
-        Stage_addChild(stage, menuBtn);
-
-        void* vtable_addr = *((void**) menuBtn);
-        void* btnHandler = *((void**) ((uint8*) vtable_addr + 0x350));
-
-        interceptor.attach(btnHandler, new MenuListener(this));
-    }
-
-    private void patch_ret(void* address) {
-        Gum.Memory.patch_code(address, 4, (code) => {
-            var writer = new Arm64Writer(code);
-            writer.put_ret();
-            writer.flush();
-        });
-    }
-
-    public void openNLBRMenu() {
-    }
-}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gadget.framework
+          path: gadget.framework
