@@ -32,12 +32,12 @@ jobs:
           export FRIDA_NODE=disabled
           export FRIDA_SWIFT=disabled
           export FRIDA_TOOLS=disabled
-          make core-ios
+          make gadget-ios
 
       - name: Package gadget.framework
         run: |
           mkdir -p gadget.framework/ss
-          cp build/frida-ios-arm64/lib/frida/64/frida-gadget.dylib gadget.framework/gadget
+          find build -name "frida-gadget.dylib" -type f -exec cp {} gadget.framework/gadget \;
           cp bs-custom-files/load.lebronjs gadget.framework/ss/load.lebronjs
 
       - name: Upload Artifact
