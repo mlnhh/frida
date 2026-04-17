@@ -13,51 +13,35 @@
 #include <mach-o/loader.h>
 #include <objc/runtime.h>
 #include <dlfcn.h>
-#include <gum/gum.h> // Required for native memory patching
+#include <gum/gum.h>
+#include <gum/gumprocess.h>
 
-/* =========================================================
- * NATIVE ANTI-CHEAT KILLS (EXECUTED AT DYLD LEVEL)
- * ========================================================= */
+void frida_gadget_environment_init (void);
+void frida_gadget_environment_ensure_debugger_breakpoints_only (void);
 
 static void apply_ret_patch(gpointer mem, gpointer user_data) {
     guint32 *code = (guint32 *)mem;
-    *code = 0xd65f03c0; // ARM64 'RET' instruction
+    *code = 0xd65f03c0;
 }
 
 static void apply_mov1_ret_patch(gpointer mem, gpointer user_data) {
     guint32 *code = (guint32 *)mem;
-    code[0] = 0x52800020; // ARM64 'MOV W0, #1' instruction
-    code[1] = 0xd65f03c0; // ARM64 'RET' instruction
+    code[0] = 0x52800020;
+    code[1] = 0xd65f03c0;
 }
 
 static void execute_native_anticheat_kills(void) {
-    // Get the base address of the game binary
     GumAddress base = gum_module_find_base_address("laser");
     if (base == 0) return;
 
-    // 1. Central Factory Nuke
-    gum_memory_patch_code(base + 0x101010da4, 4, apply_ret_patch, NULL);
-    
-    // 2. Input Protection
-    gum_memory_patch_code(base + 0x1011e214c, 4, apply_ret_patch, NULL);
-    
-    // 3. Instance Protection & Observer Engine
-    gum_memory_patch_code(base + 0x1011e1f54, 4, apply_ret_patch, NULL);
-    gum_memory_patch_code(base + 0x1011dfb24, 4, apply_ret_patch, NULL);
-    
-    // 4. Debugger Stealth (ptrace / SVC)
-    gum_memory_patch_code(base + 0x100004440, 4, apply_ret_patch, NULL);
-    
-    // 5. Login Attribution Snitch (Message ID 30000)
-    gum_memory_patch_code(base + 0x1011e0170, 4, apply_ret_patch, NULL);
-
-    // 6. Database Validator / PRAGMA (Requires 8 bytes for MOV + RET)
-    gum_memory_patch_code(base + 0x1010ad210, 8, apply_mov1_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x101010da4), 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x1011e214c), 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x1011e1f54), 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x1011dfb24), 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x100004440), 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x1011e0170), 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(GSIZE_TO_POINTER(base + 0x1010ad210), 8, apply_mov1_ret_patch, NULL);
 }
-
-/* =========================================================
- * STANDARD FRIDA GADGET LOADER
- * ========================================================= */
 
 static gchar *
 frida_resolve_gadget_dir (void)
@@ -74,13 +58,10 @@ frida_resolve_gadget_dir (void)
 __attribute__ ((constructor)) static void
 frida_on_load (int argc, const char * argv[], const char * envp[], const char * apple[], int * result)
 {
-    /* 1. Initialize Gum allocator and Frida environment FIRST */
     frida_gadget_environment_init ();
     
-    /* 2. KILL THE ANTI-CHEAT NATIVELY BEFORE JS EVEN LOADS */
     execute_native_anticheat_kills();
     
-    /* 3. Apply system-level breakpoint stealth */
     frida_gadget_environment_ensure_debugger_breakpoints_only();
 
     gboolean found_range;
@@ -110,7 +91,6 @@ frida_on_load (int argc, const char * argv[], const char * envp[], const char * 
         g_free (config_data);
     config_data = json;
 
-    /* 4. Finally, load the JS engine for your UI */
     frida_gadget_load (found_range ? &range : NULL, config_data, result);
 
     g_free (config_data);
