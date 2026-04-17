@@ -13,6 +13,7 @@
 #endif
 
 #ifdef HAVE_DARWIN
+void _frida_gadget_on_pending_thread_garbage (void *data);
 void frida_parse_apple_parameters (const gchar * apple[], gboolean * found_range, GumMemoryRange * range, gchar ** config_data);
 #endif
 
