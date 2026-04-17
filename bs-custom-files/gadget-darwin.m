@@ -5,18 +5,40 @@
 # undef __WATCHOS_PROHIBITED
 # define __WATCHOS_PROHIBITED
 #endif
-
 #include "frida-gadget.h"
 #include "frida-base.h"
-
 #import <Foundation/Foundation.h>
 #include <gum/gumdarwin.h>
 #include <mach-o/loader.h>
 #include <objc/runtime.h>
+#include <dlfcn.h>
+
+static gchar *
+frida_resolve_gadget_dir (void)
+{
+    Dl_info info;
+    /*
+     * dladdr on a symbol that is definitely inside this dylib gives us the
+     * path to the dylib itself.  From there we derive the directory that
+     * contains both the dylib and the ss/ folder.
+     */
+    if (dladdr ((void *) frida_resolve_gadget_dir, &info) == 0 || info.dli_fname == NULL)
+        return NULL;
+
+    NSString *dylib_path = [NSString stringWithUTF8String:info.dli_fname];
+    NSString *dir        = [dylib_path stringByDeletingLastPathComponent];
+    return g_strdup ([dir UTF8String]);
+}
 
 __attribute__ ((constructor)) static void
 frida_on_load (int argc, const char * argv[], const char * envp[], const char * apple[], int * result)
 {
+    /*
+     * environment_init MUST come first – it boots GLib, the thread pool and
+     * everything else that frida_gadget_load() depends on.
+     */
+    frida_gadget_environment_init ();
+
     gboolean found_range;
     GumMemoryRange range;
     gchar * config_data = NULL;
@@ -24,72 +46,87 @@ frida_on_load (int argc, const char * argv[], const char * envp[], const char * 
     extern void frida_parse_apple_parameters (const char * apple[], gboolean * found_range, GumMemoryRange * range, gchar ** config_data);
     frida_parse_apple_parameters (apple, &found_range, &range, &config_data);
 
-    // Hardcode load ss/load.lebronjs - no .x/.w decryption for now
-    NSString *jsonConfig = @"{\n"
+    /* Build an absolute path so Frida can actually open the script file. */
+    gchar * gadget_dir = frida_resolve_gadget_dir ();
+    gchar * script_path = (gadget_dir != NULL)
+        ? g_strdup_printf ("%s/ss/load.lebronjs", gadget_dir)
+        : g_strdup ("ss/load.lebronjs");   /* last-resort fallback */
+    g_free (gadget_dir);
+
+    gchar * json = g_strdup_printf (
+        "{\n"
         "  \"interaction\": {\n"
         "    \"type\": \"script\",\n"
-        "    \"path\": \"ss/load.lebronjs\",\n"
+        "    \"path\": \"%s\",\n"
         "    \"on_change\": \"ignore\"\n"
         "  }\n"
-        "}";
+        "}", script_path);
+    g_free (script_path);
 
-    if (config_data) g_free(config_data);
-    config_data = g_strdup([jsonConfig UTF8String]);
+    if (config_data != NULL)
+        g_free (config_data);
+    config_data = json;
 
-    frida_gadget_load (found_range ? &range : NULL, config_data, (config_data != NULL) ? result : NULL);
+    frida_gadget_load (found_range ? &range : NULL, config_data, result);
 
-    if (config_data) g_free(config_data);
-
-    frida_gadget_environment_init();
+    g_free (config_data);
 }
 
 __attribute__ ((destructor)) static void
 frida_on_unload (void)
 {
-    frida_gadget_unload();
+    frida_gadget_unload ();
 }
 
 void
 frida_gadget_environment_detect_darwin_location_fields (GumAddress our_address, gchar ** executable_name, gchar ** our_path, GumMemoryRange ** our_range)
 {
-    // Keep original stealth code
-    mach_port_t task = mach_task_self();
-    GumDarwinModuleResolver *resolver = gum_darwin_module_resolver_new(task, NULL);
-    if (resolver == NULL) return;
+    mach_port_t task = mach_task_self ();
+    GumDarwinModuleResolver *resolver = gum_darwin_module_resolver_new (task, NULL);
+    if (resolver == NULL)
+        return;
 
     GPtrArray *modules;
-    gum_darwin_module_resolver_fetch_modules(resolver, &modules, NULL);
+    gum_darwin_module_resolver_fetch_modules (resolver, &modules, NULL);
 
-    for (guint i = 0; i < modules->len; i++) {
-        GumModule *module = g_ptr_array_index(modules, i);
-        const GumMemoryRange *range = gum_module_get_range(module);
+    for (guint i = 0; i < modules->len; i++)
+    {
+        GumModule *module = g_ptr_array_index (modules, i);
+        const GumMemoryRange *mrange = gum_module_get_range (module);
 
-        if (*executable_name == NULL) {
-            gum_mach_header_t *header = GSIZE_TO_POINTER(range->base_address);
+        if (*executable_name == NULL)
+        {
+            gum_mach_header_t *header = GSIZE_TO_POINTER (mrange->base_address);
             if (header->filetype == MH_EXECUTE)
-                *executable_name = g_strdup(gum_module_get_name(module));
+                *executable_name = g_strdup (gum_module_get_name (module));
         }
 
-        if (our_address >= range->base_address && our_address < range->base_address + range->size) {
+        if (our_address >= mrange->base_address && our_address < mrange->base_address + mrange->size)
+        {
             if (*our_path == NULL)
-                *our_path = g_strdup(gum_module_get_path(module));
+                *our_path = g_strdup (gum_module_get_path (module));
             if (*our_range == NULL)
-                *our_range = gum_memory_range_copy(range);
+                *our_range = gum_memory_range_copy (mrange);
         }
 
         if (*executable_name != NULL && *our_path != NULL && *our_range != NULL)
             break;
     }
 
-    g_ptr_array_unref(modules);
-    g_object_unref(resolver);
+    g_ptr_array_unref (modules);
+    g_object_unref (resolver);
 }
 
 void
 frida_gadget_environment_ensure_debugger_breakpoints_only (void)
 {
-    task_set_exception_ports(
-        mach_task_self(),
+    /*
+     * Wipe every exception port EXCEPT breakpoints.  This prevents other
+     * tools from stealing SW breakpoints but keeps the system crash reporter
+     * able to handle everything else.
+     */
+    task_set_exception_ports (
+        mach_task_self (),
         EXC_MASK_ALL & ~EXC_MASK_BREAKPOINT,
         MACH_PORT_NULL,
         EXCEPTION_DEFAULT,
