@@ -32,7 +32,7 @@ jobs:
           export FRIDA_NODE=disabled
           export FRIDA_SWIFT=disabled
           export FRIDA_TOOLS=disabled
-          make gadget-ios
+          make core-ios-arm64
 
       - name: Package gadget.framework
         run: |
