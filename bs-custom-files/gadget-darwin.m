@@ -16,6 +16,7 @@
 #include <gum/gum.h>
 #include <gum/gumprocess.h>
 
+GumAddress gum_module_find_base_address(const gchar * module_name);
 void frida_gadget_environment_init (void);
 void frida_gadget_environment_ensure_debugger_breakpoints_only (void);
 
