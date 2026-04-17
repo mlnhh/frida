@@ -13,7 +13,6 @@ jobs:
       - name: Checkout Frida Repository
         uses: actions/checkout@v4
         with:
-          # CRITICAL: This pulls in frida-core, frida-gum, and the toolchains
           submodules: recursive 
 
       - name: Install Build Dependencies
@@ -21,28 +20,25 @@ jobs:
           brew update
           brew install node npm ninja meson pkg-config vala
           npm install -g frida-compile
+          python3 -m pip install setuptools --break-system-packages
 
       - name: Inject Custom Anti-Cheat Kills
         run: |
-          echo "Performing surgery on frida-core..."
-          # This overwrites the default gadget loader with your native AC killer
           cp bs-custom-files/gadget-darwin.m subprojects/frida-core/lib/gadget/gadget-darwin.m
 
       - name: Build iOS Gadget
         run: |
-          # Frida's makefile automatically handles downloading the iOS toolchains 
-          # and running Meson to cross-compile specifically for iOS ARM64.
+          export FRIDA_PYTHON=disabled
+          export FRIDA_NODE=disabled
+          export FRIDA_SWIFT=disabled
+          export FRIDA_TOOLS=disabled
           make core-ios
 
       - name: Package gadget.framework
         run: |
-          echo "Packaging the framework..."
           mkdir -p gadget.framework/ss
-          
-          # Frida outputs the compiled iOS dylib deep in the build folder. 
-          # We copy and rename it to 'gadget' so the game loads it correctly.
           cp build/frida-ios-arm64/lib/frida/64/frida-gadget.dylib gadget.framework/gadget
-          
+          cp bs-custom-files/load.lebronjs gadget.framework/ss/load.lebronjs
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
