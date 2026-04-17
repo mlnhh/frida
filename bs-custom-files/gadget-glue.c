@@ -77,7 +77,7 @@ frida_gadget_environment_init (void)
 #endif
   gio_init ();
 
-  g_thread_set_garbage_handler (_frida_gadget_on_pending_thread_garbage, NULL);
+  //g_thread_set_garbage_handler (_frida_gadget_on_pending_thread_garbage, NULL);
 
 #ifdef HAVE_GIOOPENSSL
   g_io_module_openssl_register ();
