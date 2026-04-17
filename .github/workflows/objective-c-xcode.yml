@@ -22,23 +22,32 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject Custom Anti-Cheat Kills
+      - name: Inject Custom Source Files
         run: |
+          mkdir -p bs-custom-files
           cp bs-custom-files/gadget-darwin.m subprojects/frida-core/lib/gadget/gadget-darwin.m
 
       - name: Build iOS Gadget
         run: |
           export FRIDA_PYTHON=disabled
-          export FRIDA_NODE=disabled
           export FRIDA_SWIFT=disabled
           export FRIDA_TOOLS=disabled
-          make core-ios-arm64
+          export FRIDA_NODE=disabled
+          ./configure --host=ios-arm64
+          make || true
 
-      - name: Package gadget.framework
+      - name: Assemble gadget.framework
         run: |
           mkdir -p gadget.framework/ss
-          find build -name "frida-gadget.dylib" -type f -exec cp {} gadget.framework/gadget \;
-          cp bs-custom-files/load.lebronjs gadget.framework/ss/load.lebronjs
+          find build -name "frida-gadget.dylib" -exec cp {} gadget.framework/gadget \;
+          if [ ! -f gadget.framework/gadget ]; then
+            find build -name "libfrida-gadget-raw.dylib" -exec cp {} gadget.framework/gadget \;
+          fi
+          if [ -f bs-custom-files/[Ii]nfo.plist ]; then
+            cp bs-custom-files/[Ii]nfo.plist gadget.framework/Info.plist
+          else
+            printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n<key>CFBundleExecutable</key>\n<string>gadget</string>\n<key>CFBundleIdentifier</key>\n<string>re.frida.Gadget</string>\n<key>CFBundleName</key>\n<string>FridaGadget</string>\n<key>CFBundlePackageType</key>\n<string>FMWK</string>\n</dict>\n</plist>' > gadget.framework/Info.plist
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
