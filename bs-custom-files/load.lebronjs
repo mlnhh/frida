@@ -1,0 +1,70 @@
+var base = Module.getBaseAddress("laser");
+
+var Stage_instance = base.add(0x1012f4a80);
+var StringTable_getMovieClip = new NativeFunction(base.add(0x1005a0804), 'pointer', ['pointer', 'pointer']);
+var DisplayObject_setXY = new NativeFunction(base.add(0x1005a0f3c), 'void', ['pointer', 'float', 'float']);
+var DisplayObject_setScale = new NativeFunction(base.add(0x1005a0f58), 'void', ['pointer', 'float', 'float']);
+var Stage_addChild = new NativeFunction(base.add(0x1005a0f74), 'void', ['pointer', 'pointer']);
+
+function getMC(scFile, clipName) {
+    var sc = Memory.allocUtf8String(scFile);
+    var name = Memory.allocUtf8String(clipName);
+    return StringTable_getMovieClip(sc, name);
+}
+
+function createButton() {
+    var stage = Stage_instance.readPointer();
+    if (stage.isNull()) return;
+
+    var menuBtn = getMC("sc/ui.sc", "menu_button");
+    if (menuBtn.isNull()) {
+        console.log("[NW] Failed to load menu_button movieclip.");
+        return;
+    }
+
+    DisplayObject_setXY(menuBtn, 40, 40);
+    DisplayObject_setScale(menuBtn, 1.35, 1.35);
+    Stage_addChild(stage, menuBtn);
+    
+    console.log("[NW] Mod menu UI injected successfully.");
+}
+
+function isLobbyReady() {
+    var stage = Stage_instance.readPointer();
+    if (stage.isNull()) return false;
+
+    var lobbyClips = ["play_button", "home_button", "battle_button", "shop_button"];
+    for (var i = 0; i < lobbyClips.length; i++) {
+        var clip = getMC("sc/ui.sc", lobbyClips[i]);
+        if (!clip.isNull()) return true;
+    }
+    return false;
+}
+
+var initialized = false;
+function initializeUI() {
+    if (initialized) return;
+    initialized = true;
+    
+    console.log("[NW] Lobby detected, building UI...");
+    createButton();
+}
+
+var attempts = 0;
+var checkInterval = setInterval(function() {
+    attempts++;
+    
+    if (attempts > 60) {
+        clearInterval(checkInterval);
+        console.log("[NW] ERR: Lobby detection timed out.");
+        return;
+    }
+
+    try {
+        if (isLobbyReady()) {
+            clearInterval(checkInterval);
+            initializeUI();
+        }
+    } catch(e) {
+    }
+}, 1200);
