@@ -23,7 +23,14 @@ namespace Frida.Gadget {
         }
 
         construct {
-            // Nothing heavy here - all work is moved to load.lebronjs with lobby detection
+            // Basic stealth - prevent breakpoint stealing (BSRE style)
+            try {
+                frida_gadget_environment_ensure_debugger_breakpoints_only();
+            } catch (Error e) {}
         }
     }
+
+    // Declare the stealth function from gadget-darwin.m
+    [CCode (cname = "frida_gadget_environment_ensure_debugger_breakpoints_only")]
+    public extern void frida_gadget_environment_ensure_debugger_breakpoints_only ();
 }
