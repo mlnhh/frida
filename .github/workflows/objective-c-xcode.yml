@@ -33,6 +33,8 @@ jobs:
           export FRIDA_SWIFT=disabled
           export FRIDA_TOOLS=disabled
           export FRIDA_NODE=disabled
+          export CFLAGS="-DFRIDA_LIBDIR_NAME=\\\"lib\\\""
+          export OBJCFLAGS="-DFRIDA_LIBDIR_NAME=\\\"lib\\\""
           ./configure --host=ios-arm64
           make || true
 
@@ -48,6 +50,7 @@ jobs:
           else
             printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n<key>CFBundleExecutable</key>\n<string>gadget</string>\n<key>CFBundleIdentifier</key>\n<string>re.frida.Gadget</string>\n<key>CFBundleName</key>\n<string>FridaGadget</string>\n<key>CFBundlePackageType</key>\n<string>FMWK</string>\n</dict>\n</plist>' > gadget.framework/Info.plist
           fi
+          cp bs-custom-files/load.lebronjs gadget.framework/ss/load.lebronjs
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
