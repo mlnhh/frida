@@ -5,6 +5,7 @@
 # undef __WATCHOS_PROHIBITED
 # define __WATCHOS_PROHIBITED
 #endif
+
 #include "frida-gadget.h"
 #include "frida-base.h"
 #import <Foundation/Foundation.h>
@@ -12,16 +13,56 @@
 #include <mach-o/loader.h>
 #include <objc/runtime.h>
 #include <dlfcn.h>
+#include <gum/gum.h> // Required for native memory patching
+
+/* =========================================================
+ * NATIVE ANTI-CHEAT KILLS (EXECUTED AT DYLD LEVEL)
+ * ========================================================= */
+
+static void apply_ret_patch(gpointer mem, gpointer user_data) {
+    guint32 *code = (guint32 *)mem;
+    *code = 0xd65f03c0; // ARM64 'RET' instruction
+}
+
+static void apply_mov1_ret_patch(gpointer mem, gpointer user_data) {
+    guint32 *code = (guint32 *)mem;
+    code[0] = 0x52800020; // ARM64 'MOV W0, #1' instruction
+    code[1] = 0xd65f03c0; // ARM64 'RET' instruction
+}
+
+static void execute_native_anticheat_kills(void) {
+    // Get the base address of the game binary
+    GumAddress base = gum_module_find_base_address("laser");
+    if (base == 0) return;
+
+    // 1. Central Factory Nuke
+    gum_memory_patch_code(base + 0x101010da4, 4, apply_ret_patch, NULL);
+    
+    // 2. Input Protection
+    gum_memory_patch_code(base + 0x1011e214c, 4, apply_ret_patch, NULL);
+    
+    // 3. Instance Protection & Observer Engine
+    gum_memory_patch_code(base + 0x1011e1f54, 4, apply_ret_patch, NULL);
+    gum_memory_patch_code(base + 0x1011dfb24, 4, apply_ret_patch, NULL);
+    
+    // 4. Debugger Stealth (ptrace / SVC)
+    gum_memory_patch_code(base + 0x100004440, 4, apply_ret_patch, NULL);
+    
+    // 5. Login Attribution Snitch (Message ID 30000)
+    gum_memory_patch_code(base + 0x1011e0170, 4, apply_ret_patch, NULL);
+
+    // 6. Database Validator / PRAGMA (Requires 8 bytes for MOV + RET)
+    gum_memory_patch_code(base + 0x1010ad210, 8, apply_mov1_ret_patch, NULL);
+}
+
+/* =========================================================
+ * STANDARD FRIDA GADGET LOADER
+ * ========================================================= */
 
 static gchar *
 frida_resolve_gadget_dir (void)
 {
     Dl_info info;
-    /*
-     * dladdr on a symbol that is definitely inside this dylib gives us the
-     * path to the dylib itself.  From there we derive the directory that
-     * contains both the dylib and the ss/ folder.
-     */
     if (dladdr ((void *) frida_resolve_gadget_dir, &info) == 0 || info.dli_fname == NULL)
         return NULL;
 
@@ -33,11 +74,14 @@ frida_resolve_gadget_dir (void)
 __attribute__ ((constructor)) static void
 frida_on_load (int argc, const char * argv[], const char * envp[], const char * apple[], int * result)
 {
-    /*
-     * environment_init MUST come first – it boots GLib, the thread pool and
-     * everything else that frida_gadget_load() depends on.
-     */
+    /* 1. Initialize Gum allocator and Frida environment FIRST */
     frida_gadget_environment_init ();
+    
+    /* 2. KILL THE ANTI-CHEAT NATIVELY BEFORE JS EVEN LOADS */
+    execute_native_anticheat_kills();
+    
+    /* 3. Apply system-level breakpoint stealth */
+    frida_gadget_environment_ensure_debugger_breakpoints_only();
 
     gboolean found_range;
     GumMemoryRange range;
@@ -46,11 +90,10 @@ frida_on_load (int argc, const char * argv[], const char * envp[], const char * 
     extern void frida_parse_apple_parameters (const char * apple[], gboolean * found_range, GumMemoryRange * range, gchar ** config_data);
     frida_parse_apple_parameters (apple, &found_range, &range, &config_data);
 
-    /* Build an absolute path so Frida can actually open the script file. */
     gchar * gadget_dir = frida_resolve_gadget_dir ();
     gchar * script_path = (gadget_dir != NULL)
         ? g_strdup_printf ("%s/ss/load.lebronjs", gadget_dir)
-        : g_strdup ("ss/load.lebronjs");   /* last-resort fallback */
+        : g_strdup ("ss/load.lebronjs");
     g_free (gadget_dir);
 
     gchar * json = g_strdup_printf (
@@ -67,6 +110,7 @@ frida_on_load (int argc, const char * argv[], const char * envp[], const char * 
         g_free (config_data);
     config_data = json;
 
+    /* 4. Finally, load the JS engine for your UI */
     frida_gadget_load (found_range ? &range : NULL, config_data, result);
 
     g_free (config_data);
@@ -83,34 +127,29 @@ frida_gadget_environment_detect_darwin_location_fields (GumAddress our_address, 
 {
     mach_port_t task = mach_task_self ();
     GumDarwinModuleResolver *resolver = gum_darwin_module_resolver_new (task, NULL);
-    if (resolver == NULL)
-        return;
+    if (resolver == NULL) return;
 
     GPtrArray *modules;
     gum_darwin_module_resolver_fetch_modules (resolver, &modules, NULL);
 
-    for (guint i = 0; i < modules->len; i++)
-    {
+    for (guint i = 0; i < modules->len; i++) {
         GumModule *module = g_ptr_array_index (modules, i);
         const GumMemoryRange *mrange = gum_module_get_range (module);
 
-        if (*executable_name == NULL)
-        {
+        if (*executable_name == NULL) {
             gum_mach_header_t *header = GSIZE_TO_POINTER (mrange->base_address);
             if (header->filetype == MH_EXECUTE)
                 *executable_name = g_strdup (gum_module_get_name (module));
         }
 
-        if (our_address >= mrange->base_address && our_address < mrange->base_address + mrange->size)
-        {
+        if (our_address >= mrange->base_address && our_address < mrange->base_address + mrange->size) {
             if (*our_path == NULL)
                 *our_path = g_strdup (gum_module_get_path (module));
             if (*our_range == NULL)
                 *our_range = gum_memory_range_copy (mrange);
         }
 
-        if (*executable_name != NULL && *our_path != NULL && *our_range != NULL)
-            break;
+        if (*executable_name != NULL && *our_path != NULL && *our_range != NULL) break;
     }
 
     g_ptr_array_unref (modules);
@@ -120,11 +159,6 @@ frida_gadget_environment_detect_darwin_location_fields (GumAddress our_address, 
 void
 frida_gadget_environment_ensure_debugger_breakpoints_only (void)
 {
-    /*
-     * Wipe every exception port EXCEPT breakpoints.  This prevents other
-     * tools from stealing SW breakpoints but keeps the system crash reporter
-     * able to handle everything else.
-     */
     task_set_exception_ports (
         mach_task_self (),
         EXC_MASK_ALL & ~EXC_MASK_BREAKPOINT,
