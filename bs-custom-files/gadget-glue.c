@@ -33,6 +33,7 @@ DllMain (HINSTANCE instance, DWORD reason, LPVOID reserved)
   switch (reason)
   {
     case DLL_PROCESS_ATTACH:
+      frida_gadget_environment_init ();
       frida_gadget_load (NULL, NULL, NULL);
       break;
     case DLL_PROCESS_DETACH:
@@ -51,14 +52,19 @@ DllMain (HINSTANCE instance, DWORD reason, LPVOID reserved)
 
 #elif defined (HAVE_DARWIN)
 
+/*
+ * Darwin entry points live in gadget-darwin.m.
+ * frida_gadget_environment_init() is called there, BEFORE frida_gadget_load(),
+ * so nothing extra is needed here.
+ */
+
 #else
 
 __attribute__ ((constructor)) static void
 frida_on_load (void)
 {
+  frida_gadget_environment_init ();
   frida_gadget_load (NULL, NULL, NULL);
-  frida_gadget_environment_init();
-  load_config_forced();
 }
 
 __attribute__ ((destructor)) static void
@@ -77,14 +83,14 @@ frida_gadget_environment_init (void)
 #endif
   gio_init ();
 
-  //g_thread_set_garbage_handler (_frida_gadget_on_pending_thread_garbage, NULL);
+  g_thread_set_garbage_handler (_frida_gadget_on_pending_thread_garbage, NULL);
 
 #ifdef HAVE_GIOOPENSSL
   g_io_module_openssl_register ();
 #endif
 
-  gum_script_backend_get_type (); 
-  frida_error_quark (); 
+  gum_script_backend_get_type ();
+  frida_error_quark ();
 
 #if defined (HAVE_ANDROID) && __ANDROID_API__ < __ANDROID_API_L__
   bsd_signal (G_MAXINT32, SIG_DFL);
