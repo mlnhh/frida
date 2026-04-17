@@ -1,4 +1,5 @@
-name: Build BSRE Gadget
+name: Build Custom Frida Gadget
+
 on:
   push:
     branches: [ main ]
@@ -7,60 +8,44 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Frida Repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          # CRITICAL: This pulls in frida-core, frida-gum, and the toolchains
+          submodules: recursive 
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install Dependencies
+      - name: Install Build Dependencies
         run: |
-          brew install bison flex gettext make cmake
-          pip3 install colorama prompt-toolkit pygments cryptography setuptools --break-system-packages
-          echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
-          echo "/opt/homebrew/opt/flex/bin" >> $GITHUB_PATH
-          echo "/opt/homebrew/opt/make/libexec/gnubin" >> $GITHUB_PATH
+          brew update
+          brew install node npm ninja meson pkg-config vala
+          npm install -g frida-compile
 
-      - name: Inject Custom Source Files
+      - name: Inject Custom Anti-Cheat Kills
         run: |
-          # Create the folder if it somehow doesn't exist to prevent copy errors
-          mkdir -p bs-custom-files
-          cp bs-custom-files/gadget.vala subprojects/frida-core/lib/gadget/gadget.vala
+          echo "Performing surgery on frida-core..."
+          # This overwrites the default gadget loader with your native AC killer
           cp bs-custom-files/gadget-darwin.m subprojects/frida-core/lib/gadget/gadget-darwin.m
-          cp bs-custom-files/gadget-glue.c subprojects/frida-core/lib/gadget/gadget-glue.c
 
-      - name: Compile Gadget for iOS
+      - name: Build iOS Gadget
         run: |
-          export CFLAGS="-DFRIDA_LIBDIR_NAME=\\\"frida\\\""
-          export FRIDA_PYTHON=disabled
-          export FRIDA_TOOLS=disabled
-          export FRIDA_NODE=disabled
-          ./configure --host=ios-arm64
-          # We use || true because the helper signing fails, but gadget is usually linked by then
-          make || true
+          # Frida's makefile automatically handles downloading the iOS toolchains 
+          # and running Meson to cross-compile specifically for iOS ARM64.
+          make core-ios
 
-      - name: Assemble gadget.framework
+      - name: Package gadget.framework
         run: |
-          mkdir -p gadget.framework
-          # Let's find exactly where the dylib is and copy it
-          find build -name "libfrida-gadget-raw.dylib" -exec cp {} gadget.framework/gadget \;
+          echo "Packaging the framework..."
+          mkdir -p gadget.framework/ss
           
-          # Fix for the missing info.plist error: 
-          # We try to find any plist in your custom folder, or create a dummy one if missing
-          if [ -f bs-custom-files/[Ii]nfo.plist ]; then
-            cp bs-custom-files/[Ii]nfo.plist gadget.framework/Info.plist
-          else
-            echo "Warning: Info.plist not found in bs-custom-files, creating a basic one."
-            printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n<key>CFBundleExecutable</key>\n<string>gadget</string>\n<key>CFBundleIdentifier</key>\n<string>re.frida.Gadget</string>\n<key>CFBundleName</key>\n<string>FridaGadget</string>\n<key>CFBundlePackageType</key>\n<string>FMWK</string>\n</dict>\n</plist>' > gadget.framework/Info.plist
-          fi
+          # Frida outputs the compiled iOS dylib deep in the build folder. 
+          # We copy and rename it to 'gadget' so the game loads it correctly.
+          cp build/frida-ios-arm64/lib/frida/64/frida-gadget.dylib gadget.framework/gadget
+          
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gadget.framework
+          name: gadget-framework
           path: gadget.framework
