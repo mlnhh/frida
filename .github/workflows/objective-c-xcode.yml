@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject Ghost Wiretap (Isolation Test)
+      - name: Inject Ghost Wiretap (Constructor Fixed)
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -32,14 +32,13 @@ jobs:
           #include <gum/gum.h>
           #include <syslog.h>
           
+          __attribute__((constructor))
           static void setup_wiretaps(void) {
-              // We hook NOTHING. We just announce that we are in the RAM.
               syslog(LOG_ERR, "[WIRETAP] GHOST GADGET LOADED SUCCESSFULLY. WAITING FOR CRASH...");
           }
           """
           
           code = injection + "\n" + code
-          code = code.replace("gum_init_embedded ();", "gum_init_embedded ();\n  setup_wiretaps();")
           
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "w") as f:
               f.write(code)
