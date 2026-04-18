@@ -24,35 +24,43 @@ jobs:
 
       - name: Inject Custom Anti-Cheat Kills
         run: |
-          cat << 'EOF' >> subprojects/frida-core/lib/gadget/gadget-darwin.m
+          python3 -c '
+          with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
+              code = f.read()
           
+          injection = """
+          #ifdef HAVE_DARWIN
           #include <mach-o/dyld.h>
-          #include <gum/gum.h>
+          #endif
           
           static void apply_ret_patch(gpointer mem, gpointer user_data) {
-              guint32 *code = (guint32 *)mem;
-              *code = 0xd65f03c0;
+              *(guint32 *)mem = 0xd65f03c0;
           }
-          
           static void apply_mov1_ret_patch(gpointer mem, gpointer user_data) {
-              guint32 *code = (guint32 *)mem;
-              code[0] = 0x52800020;
-              code[1] = 0xd65f03c0;
+              ((guint32 *)mem)[0] = 0x52800020;
+              ((guint32 *)mem)[1] = 0xd65f03c0;
           }
           
-          __attribute__((constructor(101)))
-          static void execute_native_anticheat_kills(void) {
-              gum_init_embedded();
+          static void kill_anticheat(void) {
+          #ifdef HAVE_DARWIN
               intptr_t slide = _dyld_get_image_vmaddr_slide(0);
-              gum_memory_patch_code((gpointer)(slide + 0x101010da4), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code((gpointer)(slide + 0x1011e214c), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code((gpointer)(slide + 0x1011e1f54), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code((gpointer)(slide + 0x1011dfb24), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code((gpointer)(slide + 0x100004440), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code((gpointer)(slide + 0x1011e0170), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code((gpointer)(slide + 0x1010ad210), 8, apply_mov1_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x101010da4), 4, apply_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011e214c), 4, apply_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011e1f54), 4, apply_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011dfb24), 4, apply_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x100004440), 4, apply_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011e0170), 4, apply_ret_patch, NULL);
+              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1010ad210), 8, apply_mov1_ret_patch, NULL);
+          #endif
           }
-          EOF
+          """
+          
+          code = injection + code
+          code = code.replace("gum_init_embedded ();", "gum_init_embedded ();\n  kill_anticheat();")
+          
+          with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "w") as f:
+              f.write(code)
+          '
 
       - name: Build iOS Gadget
         run: |
