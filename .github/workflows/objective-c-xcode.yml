@@ -24,13 +24,8 @@ jobs:
 
       - name: Inject Custom Anti-Cheat Kills
         run: |
-          python3 -c '
-          import re
+          cat << 'EOF' >> subprojects/frida-core/lib/gadget/gadget-darwin.m
           
-          with open("subprojects/frida-core/lib/gadget/gadget-darwin.m", "r") as f:
-              code = f.read()
-              
-          headers = """
           #include <mach-o/dyld.h>
           #include <gum/gum.h>
           
@@ -45,6 +40,7 @@ jobs:
               code[1] = 0xd65f03c0;
           }
           
+          __attribute__((constructor(101)))
           static void execute_native_anticheat_kills(void) {
               gum_init_embedded();
               intptr_t slide = _dyld_get_image_vmaddr_slide(0);
@@ -56,14 +52,7 @@ jobs:
               gum_memory_patch_code((gpointer)(slide + 0x1011e0170), 4, apply_ret_patch, NULL);
               gum_memory_patch_code((gpointer)(slide + 0x1010ad210), 8, apply_mov1_ret_patch, NULL);
           }
-          """
-          
-          code = code.replace("#include \"frida-gadget.h\"", headers + "\n#include \"frida-gadget.h\"")
-          code = re.sub(r"(frida_gadget_environment_init\s*\(\);)", r"execute_native_anticheat_kills();\n  \1", code)
-          
-          with open("subprojects/frida-core/lib/gadget/gadget-darwin.m", "w") as f:
-              f.write(code)
-          '
+          EOF
 
       - name: Build iOS Gadget
         run: |
