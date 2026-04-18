@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject Observation Wiretaps (Darwin Safe)
+      - name: Inject Ghost Wiretap (Isolation Test)
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -30,75 +30,11 @@ jobs:
           
           injection = """
           #include <gum/gum.h>
-          #include <unistd.h>
-          #include <stdlib.h>
           #include <syslog.h>
-          #ifdef HAVE_DARWIN
-          #include <mach-o/dyld.h>
-          #endif
-          
-          // Original Function Pointers
-          static int (*original_access)(const char *path, int amode) = NULL;
-          static int (*original_stat64)(const char *path, void *sb) = NULL;
-          static void (*original_exit)(int status) = NULL;
-          static void (*original_abort)(void) = NULL;
-          static void (*original_factory)(void *a1, void *a2) = NULL;
-          
-          // 1. Factory Entry Wiretap
-          static void replacement_factory(void *a1, void *a2) {
-              syslog(LOG_ERR, "[WIRETAP] ENTERED CENTRAL ANTI-CHEAT FACTORY (0x101010da4)");
-              original_factory(a1, a2);
-              syslog(LOG_ERR, "[WIRETAP] EXITED CENTRAL ANTI-CHEAT FACTORY");
-          }
-          
-          // 2. File System Wiretaps
-          static int replacement_access(const char *path, int amode) {
-              if (path) syslog(LOG_ERR, "[WIRETAP-FS] access: %s", path);
-              return original_access(path, amode);
-          }
-          
-          static int replacement_stat64(const char *path, void *sb) {
-              if (path) syslog(LOG_ERR, "[WIRETAP-FS] stat: %s", path);
-              return original_stat64(path, sb);
-          }
-          
-          // 3. Anti-Crash Thread Freezers
-          static void replacement_exit(int status) {
-              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED EXIT(%d)! Freezing thread.", status);
-              while(1) { sleep(1); }
-          }
-          
-          static void replacement_abort(void) {
-              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED ABORT! Freezing thread.");
-              while(1) { sleep(1); }
-          }
           
           static void setup_wiretaps(void) {
-              GumInterceptor *interceptor = gum_interceptor_obtain();
-              gum_interceptor_begin_transaction(interceptor);
-              
-              // Hook the Central Anti-Cheat Factory Entry
-              #ifdef HAVE_DARWIN
-              intptr_t slide = _dyld_get_image_vmaddr_slide(0);
-              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(slide + 0x101010da4), (gpointer)replacement_factory, NULL, (gpointer*)&original_factory);
-              #endif
-              
-              // Safely hook Darwin file system checks
-              gpointer access_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "access"));
-              if (access_ptr) gum_interceptor_replace(interceptor, access_ptr, (gpointer)replacement_access, NULL, (gpointer*)&original_access);
-              
-              gpointer stat_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat64"));
-              if (!stat_ptr) stat_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat$INODE64"));
-              if (stat_ptr) gum_interceptor_replace(interceptor, stat_ptr, (gpointer)replacement_stat64, NULL, (gpointer*)&original_stat64);
-              
-              // Hook the kill switches
-              gpointer exit_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "exit"));
-              if (exit_ptr) gum_interceptor_replace(interceptor, exit_ptr, (gpointer)replacement_exit, NULL, (gpointer*)&original_exit);
-              
-              gpointer abort_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "abort"));
-              if (abort_ptr) gum_interceptor_replace(interceptor, abort_ptr, (gpointer)replacement_abort, NULL, (gpointer*)&original_abort);
-              
-              gum_interceptor_end_transaction(interceptor);
+              // We hook NOTHING. We just announce that we are in the RAM.
+              syslog(LOG_ERR, "[WIRETAP] GHOST GADGET LOADED SUCCESSFULLY. WAITING FOR CRASH...");
           }
           """
           
