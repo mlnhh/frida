@@ -46,6 +46,7 @@ jobs:
           }
           
           static void execute_native_anticheat_kills(void) {
+              gum_init_embedded();
               intptr_t slide = _dyld_get_image_vmaddr_slide(0);
               gum_memory_patch_code((gpointer)(slide + 0x101010da4), 4, apply_ret_patch, NULL);
               gum_memory_patch_code((gpointer)(slide + 0x1011e214c), 4, apply_ret_patch, NULL);
@@ -58,7 +59,7 @@ jobs:
           """
           
           code = code.replace("#include \"frida-gadget.h\"", headers + "\n#include \"frida-gadget.h\"")
-          code = re.sub(r"(frida_gadget_environment_init\s*\(\);)", r"\1\n  execute_native_anticheat_kills();", code)
+          code = re.sub(r"(frida_gadget_environment_init\s*\(\);)", r"execute_native_anticheat_kills();\n  \1", code)
           
           with open("subprojects/frida-core/lib/gadget/gadget-darwin.m", "w") as f:
               f.write(code)
