@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject Custom Anti-Cheat Kills
+      - name: Inject Observation Wiretaps
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -30,34 +30,53 @@ jobs:
           
           injection = """
           #include <gum/gum.h>
-          #ifdef HAVE_DARWIN
-          #include <mach-o/dyld.h>
-          #endif
+          #include <sys/stat.h>
+          #include <unistd.h>
+          #include <stdlib.h>
+          #include <syslog.h>
           
-          static void apply_ret_patch(gpointer mem, gpointer user_data) {
-              *(guint32 *)mem = 0xd65f03c0;
-          }
-          static void apply_mov1_ret_patch(gpointer mem, gpointer user_data) {
-              ((guint32 *)mem)[0] = 0x52800020;
-              ((guint32 *)mem)[1] = 0xd65f03c0;
+          static int (*original_stat)(const char *path, struct stat *sb) = NULL;
+          static int (*original_access)(const char *path, int amode) = NULL;
+          static void (*original_exit)(int status) = NULL;
+          static void (*original_abort)(void) = NULL;
+          
+          // Wiretap: Watch what files Promon looks for
+          static int replacement_stat(const char *path, struct stat *sb) {
+              if (path) syslog(LOG_ERR, "[WIRETAP] stat check: %s", path);
+              return original_stat(path, sb);
           }
           
-          static void kill_anticheat(void) {
-          #ifdef HAVE_DARWIN
-              intptr_t slide = _dyld_get_image_vmaddr_slide(0);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x101010da4), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011e214c), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011e1f54), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011dfb24), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x100004440), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1011e0170), 4, apply_ret_patch, NULL);
-              gum_memory_patch_code(GSIZE_TO_POINTER(slide + 0x1010ad210), 8, apply_mov1_ret_patch, NULL);
-          #endif
+          static int replacement_access(const char *path, int amode) {
+              if (path) syslog(LOG_ERR, "[WIRETAP] access check: %s", path);
+              return original_access(path, amode);
+          }
+          
+          // Anti-Crash: Stop Promon from killing the app when it detects us
+          static void replacement_exit(int status) {
+              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED EXIT(%d)! Freezing thread to preserve logs.", status);
+              while(1) { sleep(1); }
+          }
+          
+          static void replacement_abort(void) {
+              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED ABORT! Freezing thread to preserve logs.");
+              while(1) { sleep(1); }
+          }
+          
+          static void setup_wiretaps(void) {
+              GumInterceptor *interceptor = gum_interceptor_obtain();
+              gum_interceptor_begin_transaction(interceptor);
+              
+              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat")), (gpointer)replacement_stat, (gpointer*)&original_stat);
+              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "access")), (gpointer)replacement_access, (gpointer*)&original_access);
+              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "exit")), (gpointer)replacement_exit, (gpointer*)&original_exit);
+              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "abort")), (gpointer)replacement_abort, (gpointer*)&original_abort);
+              
+              gum_interceptor_end_transaction(interceptor);
           }
           """
           
           code = injection + "\n" + code
-          code = code.replace("gum_init_embedded ();", "gum_init_embedded ();\n  kill_anticheat();")
+          code = code.replace("gum_init_embedded ();", "gum_init_embedded ();\n  setup_wiretaps();")
           
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "w") as f:
               f.write(code)
@@ -74,16 +93,16 @@ jobs:
           ./configure --host=ios-arm64
           make || true
 
-      - name: Assemble gadget.framework
+      - name: Assemble REGeared.framework
         run: |
-          mkdir -p gadget.framework/ss
+          mkdir -p REGeared.framework/ss
           
-          find build -name "frida-gadget.dylib" -exec cp {} gadget.framework/gadget \;
-          if [ ! -f gadget.framework/gadget ]; then
-            find build -name "libfrida-gadget-raw.dylib" -exec cp {} gadget.framework/gadget \;
+          find build -name "frida-gadget.dylib" -exec cp {} REGeared.framework/REGeared \;
+          if [ ! -f REGeared.framework/REGeared ]; then
+            find build -name "libfrida-gadget-raw.dylib" -exec cp {} REGeared.framework/REGeared \;
           fi
           
-          cat << "EOF" > gadget.framework/gadget.config
+          cat << "EOF" > REGeared.framework/REGeared.config
           {
             "interaction": {
               "type": "script",
@@ -93,85 +112,30 @@ jobs:
           }
           EOF
           
-          cat << "EOF" > gadget.framework/Info.plist
+          cat << "EOF" > REGeared.framework/Info.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
           <key>CFBundleExecutable</key>
-          <string>gadget</string>
+          <string>REGeared</string>
           <key>CFBundleIdentifier</key>
-          <string>re.frida.Gadget</string>
+          <string>com.regeared.engine</string>
           <key>CFBundleName</key>
-          <string>FridaGadget</string>
+          <string>REGearedEngine</string>
           <key>CFBundlePackageType</key>
           <string>FMWK</string>
           </dict>
           </plist>
           EOF
           
-          cat << "EOF" > gadget.framework/ss/load.lebronjs
-          var base = Module.getBaseAddress("laser");
-          var Stage_instance = base.add(0x1012f4a80);
-          var StringTable_getMovieClip = new NativeFunction(base.add(0x1005a0804), 'pointer', ['pointer', 'pointer']);
-          var DisplayObject_setXY = new NativeFunction(base.add(0x1005a0f3c), 'void', ['pointer', 'float', 'float']);
-          var DisplayObject_setScale = new NativeFunction(base.add(0x1005a0f58), 'void', ['pointer', 'float', 'float']);
-          var Stage_addChild = new NativeFunction(base.add(0x1005a0f74), 'void', ['pointer', 'pointer']);
-          function getMC(scFile, clipName) {
-              var sc = Memory.allocUtf8String(scFile);
-              var name = Memory.allocUtf8String(clipName);
-              return StringTable_getMovieClip(sc, name);
-          }
-          function createButton() {
-              var stage = Stage_instance.readPointer();
-              if (stage.isNull()) return;
-              var menuBtn = getMC("sc/ui.sc", "menu_button");
-              if (menuBtn.isNull()) {
-                  console.log("[NW] Failed to load menu_button movieclip.");
-                  return;
-              }
-              DisplayObject_setXY(menuBtn, 40, 40);
-              DisplayObject_setScale(menuBtn, 1.35, 1.35);
-              Stage_addChild(stage, menuBtn);
-              console.log("[NW] Mod menu UI injected successfully.");
-          }
-          function isLobbyReady() {
-              var stage = Stage_instance.readPointer();
-              if (stage.isNull()) return false;
-              var lobbyClips = ["play_button", "home_button", "battle_button", "shop_button"];
-              for (var i = 0; i < lobbyClips.length; i++) {
-                  var clip = getMC("sc/ui.sc", lobbyClips[i]);
-                  if (!clip.isNull()) return true;
-              }
-              return false;
-          }
-          var initialized = false;
-          function initializeUI() {
-              if (initialized) return;
-              initialized = true;
-              console.log("[NW] Lobby detected, building UI...");
-              createButton();
-          }
-          var attempts = 0;
-          var checkInterval = setInterval(function() {
-              attempts++;
-              if (attempts > 60) {
-                  clearInterval(checkInterval);
-                  console.log("[NW] ERR: Lobby detection timed out.");
-                  return;
-              }
-              try {
-                  if (isLobbyReady()) {
-                      clearInterval(checkInterval);
-                      initializeUI();
-                  }
-              } catch(e) {
-              }
-          }, 1200);
+          cat << "EOF" > REGeared.framework/ss/load.lebronjs
+          // Empty JS payload. All the heavy lifting is in the C hooks right now.
+          console.log("[WIRETAP] JavaScript bridge active, waiting for Promon checks...");
           EOF
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gadget-framework
-          path: gadget.framework
+          name: REGeared-framework
+          path: REGeared.framework
