@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject DYLD Cloak
+      - name: Inject The Matrix Dodge (Signal Handler)
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -30,41 +30,37 @@ jobs:
           
           injection = """
           #include <gum/gum.h>
+          #include <signal.h>
           #include <syslog.h>
-          #include <string.h>
-          #ifdef HAVE_DARWIN
-          #include <mach-o/dyld.h>
-          #endif
+          #include <unistd.h>
           
-          static const char *(*original_dyld_get_image_name)(uint32_t image_index) = NULL;
-          
-          // The Cloak: Hide our dylib from Promon
-          static const char *replacement_dyld_get_image_name(uint32_t image_index) {
-              const char *real_name = original_dyld_get_image_name(image_index);
-              
-              if (real_name) {
-                  // If Promon finds our framework or the raw dylib, lie to it.
-                  if (strstr(real_name, "REGeared") != NULL || strstr(real_name, "frida") != NULL) {
-                      syslog(LOG_ERR, "[WIRETAP-CLOAK] Blocked Promon from seeing: %s", real_name);
-                      return "/usr/lib/libSystem.B.dylib"; // Fake it as a safe Apple library
-                  }
+          // The Bullet Catcher
+          static void poison_pill_handler(int sig, siginfo_t *info, void *context) {
+              if (info->si_addr == (void *)0x123456789a00) {
+                  syslog(LOG_ERR, "[WIRETAP] THE MATRIX DODGE: Caught Promon jumping to 0x123456789a00!");
+                  syslog(LOG_ERR, "[WIRETAP] Anti-cheat kill-thread is now permanently frozen.");
+                  
+                  // Put the thread that tried to kill the app into a permanent coma
+                  while (1) { sleep(1); }
+              } else {
+                  // If it is a normal crash, let it happen so we do not break the game
+                  syslog(LOG_ERR, "[WIRETAP] Standard crash detected at %p", info->si_addr);
+                  signal(sig, SIG_DFL);
               }
-              return real_name;
           }
           
           __attribute__((constructor))
           static void setup_wiretaps(void) {
-              syslog(LOG_ERR, "[WIRETAP] DYLD Cloak active. Hiding from image list...");
+              syslog(LOG_ERR, "[WIRETAP] Matrix Signal Handler active. Waiting for poison pill...");
               
-              GumInterceptor *interceptor = gum_interceptor_obtain();
-              gum_interceptor_begin_transaction(interceptor);
+              struct sigaction sa;
+              sa.sa_flags = SA_SIGINFO;
+              sa.sa_sigaction = poison_pill_handler;
+              sigemptyset(&sa.sa_mask);
               
-              gpointer dyld_name_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "_dyld_get_image_name"));
-              if (dyld_name_ptr) {
-                  gum_interceptor_replace(interceptor, dyld_name_ptr, (gpointer)replacement_dyld_get_image_name, NULL, (gpointer*)&original_dyld_get_image_name);
-              }
-              
-              gum_interceptor_end_transaction(interceptor);
+              // Trap the specific hardware faults Promon uses to kill the app
+              sigaction(SIGSEGV, &sa, NULL);
+              sigaction(SIGBUS, &sa, NULL);
           }
           """
           
