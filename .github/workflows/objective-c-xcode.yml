@@ -80,23 +80,23 @@ jobs:
               // Hook the Central Anti-Cheat Factory Entry
               #ifdef HAVE_DARWIN
               intptr_t slide = _dyld_get_image_vmaddr_slide(0);
-              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(slide + 0x101010da4), (gpointer)replacement_factory, (gpointer*)&original_factory);
+              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(slide + 0x101010da4), (gpointer)replacement_factory, NULL, (gpointer*)&original_factory);
               #endif
               
               // Safely hook Darwin file system checks
               gpointer access_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "access"));
-              if (access_ptr) gum_interceptor_replace(interceptor, access_ptr, (gpointer)replacement_access, (gpointer*)&original_access);
+              if (access_ptr) gum_interceptor_replace(interceptor, access_ptr, (gpointer)replacement_access, NULL, (gpointer*)&original_access);
               
               gpointer stat_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat64"));
               if (!stat_ptr) stat_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat$INODE64"));
-              if (stat_ptr) gum_interceptor_replace(interceptor, stat_ptr, (gpointer)replacement_stat64, (gpointer*)&original_stat64);
+              if (stat_ptr) gum_interceptor_replace(interceptor, stat_ptr, (gpointer)replacement_stat64, NULL, (gpointer*)&original_stat64);
               
               // Hook the kill switches
               gpointer exit_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "exit"));
-              if (exit_ptr) gum_interceptor_replace(interceptor, exit_ptr, (gpointer)replacement_exit, (gpointer*)&original_exit);
+              if (exit_ptr) gum_interceptor_replace(interceptor, exit_ptr, (gpointer)replacement_exit, NULL, (gpointer*)&original_exit);
               
               gpointer abort_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "abort"));
-              if (abort_ptr) gum_interceptor_replace(interceptor, abort_ptr, (gpointer)replacement_abort, (gpointer*)&original_abort);
+              if (abort_ptr) gum_interceptor_replace(interceptor, abort_ptr, (gpointer)replacement_abort, NULL, (gpointer*)&original_abort);
               
               gum_interceptor_end_transaction(interceptor);
           }
