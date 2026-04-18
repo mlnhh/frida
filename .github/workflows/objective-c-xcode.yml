@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject Observation Wiretaps
+      - name: Inject Observation Wiretaps (Darwin Safe)
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -30,35 +30,46 @@ jobs:
           
           injection = """
           #include <gum/gum.h>
-          #include <sys/stat.h>
           #include <unistd.h>
           #include <stdlib.h>
           #include <syslog.h>
+          #ifdef HAVE_DARWIN
+          #include <mach-o/dyld.h>
+          #endif
           
-          static int (*original_stat)(const char *path, struct stat *sb) = NULL;
+          // Original Function Pointers
           static int (*original_access)(const char *path, int amode) = NULL;
+          static int (*original_stat64)(const char *path, void *sb) = NULL;
           static void (*original_exit)(int status) = NULL;
           static void (*original_abort)(void) = NULL;
+          static void (*original_factory)(void *a1, void *a2) = NULL;
           
-          // Wiretap: Watch what files Promon looks for
-          static int replacement_stat(const char *path, struct stat *sb) {
-              if (path) syslog(LOG_ERR, "[WIRETAP] stat check: %s", path);
-              return original_stat(path, sb);
+          // 1. Factory Entry Wiretap
+          static void replacement_factory(void *a1, void *a2) {
+              syslog(LOG_ERR, "[WIRETAP] ENTERED CENTRAL ANTI-CHEAT FACTORY (0x101010da4)");
+              original_factory(a1, a2);
+              syslog(LOG_ERR, "[WIRETAP] EXITED CENTRAL ANTI-CHEAT FACTORY");
           }
           
+          // 2. File System Wiretaps
           static int replacement_access(const char *path, int amode) {
-              if (path) syslog(LOG_ERR, "[WIRETAP] access check: %s", path);
+              if (path) syslog(LOG_ERR, "[WIRETAP-FS] access: %s", path);
               return original_access(path, amode);
           }
           
-          // Anti-Crash: Stop Promon from killing the app when it detects us
+          static int replacement_stat64(const char *path, void *sb) {
+              if (path) syslog(LOG_ERR, "[WIRETAP-FS] stat: %s", path);
+              return original_stat64(path, sb);
+          }
+          
+          // 3. Anti-Crash Thread Freezers
           static void replacement_exit(int status) {
-              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED EXIT(%d)! Freezing thread to preserve logs.", status);
+              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED EXIT(%d)! Freezing thread.", status);
               while(1) { sleep(1); }
           }
           
           static void replacement_abort(void) {
-              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED ABORT! Freezing thread to preserve logs.");
+              syslog(LOG_ERR, "[WIRETAP] PROMON TRIGGERED ABORT! Freezing thread.");
               while(1) { sleep(1); }
           }
           
@@ -66,10 +77,26 @@ jobs:
               GumInterceptor *interceptor = gum_interceptor_obtain();
               gum_interceptor_begin_transaction(interceptor);
               
-              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat")), (gpointer)replacement_stat, (gpointer*)&original_stat);
-              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "access")), (gpointer)replacement_access, (gpointer*)&original_access);
-              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "exit")), (gpointer)replacement_exit, (gpointer*)&original_exit);
-              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "abort")), (gpointer)replacement_abort, (gpointer*)&original_abort);
+              // Hook the Central Anti-Cheat Factory Entry
+              #ifdef HAVE_DARWIN
+              intptr_t slide = _dyld_get_image_vmaddr_slide(0);
+              gum_interceptor_replace(interceptor, GSIZE_TO_POINTER(slide + 0x101010da4), (gpointer)replacement_factory, (gpointer*)&original_factory);
+              #endif
+              
+              // Safely hook Darwin file system checks
+              gpointer access_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "access"));
+              if (access_ptr) gum_interceptor_replace(interceptor, access_ptr, (gpointer)replacement_access, (gpointer*)&original_access);
+              
+              gpointer stat_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat64"));
+              if (!stat_ptr) stat_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "stat$INODE64"));
+              if (stat_ptr) gum_interceptor_replace(interceptor, stat_ptr, (gpointer)replacement_stat64, (gpointer*)&original_stat64);
+              
+              // Hook the kill switches
+              gpointer exit_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "exit"));
+              if (exit_ptr) gum_interceptor_replace(interceptor, exit_ptr, (gpointer)replacement_exit, (gpointer*)&original_exit);
+              
+              gpointer abort_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "abort"));
+              if (abort_ptr) gum_interceptor_replace(interceptor, abort_ptr, (gpointer)replacement_abort, (gpointer*)&original_abort);
               
               gum_interceptor_end_transaction(interceptor);
           }
@@ -96,7 +123,6 @@ jobs:
       - name: Assemble REGeared.framework
         run: |
           mkdir -p REGeared.framework/ss
-          
           find build -name "frida-gadget.dylib" -exec cp {} REGeared.framework/REGeared \;
           if [ ! -f REGeared.framework/REGeared ]; then
             find build -name "libfrida-gadget-raw.dylib" -exec cp {} REGeared.framework/REGeared \;
@@ -104,11 +130,7 @@ jobs:
           
           cat << "EOF" > REGeared.framework/REGeared.config
           {
-            "interaction": {
-              "type": "script",
-              "path": "ss/load.lebronjs",
-              "on_change": "ignore"
-            }
+            "interaction": { "type": "script", "path": "ss/load.lebronjs", "on_change": "ignore" }
           }
           EOF
           
@@ -117,22 +139,15 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-          <key>CFBundleExecutable</key>
-          <string>REGeared</string>
-          <key>CFBundleIdentifier</key>
-          <string>com.regeared.engine</string>
-          <key>CFBundleName</key>
-          <string>REGearedEngine</string>
-          <key>CFBundlePackageType</key>
-          <string>FMWK</string>
+          <key>CFBundleExecutable</key><string>REGeared</string>
+          <key>CFBundleIdentifier</key><string>com.regeared.engine</string>
+          <key>CFBundleName</key><string>REGearedEngine</string>
+          <key>CFBundlePackageType</key><string>FMWK</string>
           </dict>
           </plist>
           EOF
           
-          cat << "EOF" > REGeared.framework/ss/load.lebronjs
-          // Empty JS payload. All the heavy lifting is in the C hooks right now.
-          console.log("[WIRETAP] JavaScript bridge active, waiting for Promon checks...");
-          EOF
+          echo "console.log('[WIRETAP] JS Bridge Active');" > REGeared.framework/ss/load.lebronjs
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
