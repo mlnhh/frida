@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject Ghost Wiretap (Constructor Fixed)
+      - name: Inject DYLD Cloak
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -31,10 +31,40 @@ jobs:
           injection = """
           #include <gum/gum.h>
           #include <syslog.h>
+          #include <string.h>
+          #ifdef HAVE_DARWIN
+          #include <mach-o/dyld.h>
+          #endif
+          
+          static const char *(*original_dyld_get_image_name)(uint32_t image_index) = NULL;
+          
+          // The Cloak: Hide our dylib from Promon
+          static const char *replacement_dyld_get_image_name(uint32_t image_index) {
+              const char *real_name = original_dyld_get_image_name(image_index);
+              
+              if (real_name) {
+                  // If Promon finds our framework or the raw dylib, lie to it.
+                  if (strstr(real_name, "REGeared") != NULL || strstr(real_name, "frida") != NULL) {
+                      syslog(LOG_ERR, "[WIRETAP-CLOAK] Blocked Promon from seeing: %s", real_name);
+                      return "/usr/lib/libSystem.B.dylib"; // Fake it as a safe Apple library
+                  }
+              }
+              return real_name;
+          }
           
           __attribute__((constructor))
           static void setup_wiretaps(void) {
-              syslog(LOG_ERR, "[WIRETAP] GHOST GADGET LOADED SUCCESSFULLY. WAITING FOR CRASH...");
+              syslog(LOG_ERR, "[WIRETAP] DYLD Cloak active. Hiding from image list...");
+              
+              GumInterceptor *interceptor = gum_interceptor_obtain();
+              gum_interceptor_begin_transaction(interceptor);
+              
+              gpointer dyld_name_ptr = GSIZE_TO_POINTER(gum_module_find_export_by_name(NULL, "_dyld_get_image_name"));
+              if (dyld_name_ptr) {
+                  gum_interceptor_replace(interceptor, dyld_name_ptr, (gpointer)replacement_dyld_get_image_name, NULL, (gpointer*)&original_dyld_get_image_name);
+              }
+              
+              gum_interceptor_end_transaction(interceptor);
           }
           """
           
@@ -67,19 +97,6 @@ jobs:
           {
             "interaction": { "type": "script", "path": "ss/load.lebronjs", "on_change": "ignore" }
           }
-          EOF
-          
-          cat << "EOF" > REGeared.framework/Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-          <key>CFBundleExecutable</key><string>REGeared</string>
-          <key>CFBundleIdentifier</key><string>com.regeared.engine</string>
-          <key>CFBundleName</key><string>REGearedEngine</string>
-          <key>CFBundlePackageType</key><string>FMWK</string>
-          </dict>
-          </plist>
           EOF
           
           echo "console.log('[WIRETAP] JS Bridge Active');" > REGeared.framework/ss/load.lebronjs
