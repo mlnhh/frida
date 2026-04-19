@@ -68,14 +68,11 @@ jobs:
               
               // 4. Initialize Frida Gum natively
               gum_init_embedded();
-              
-              // (Stalker Transformer Logic will hook into Gum here to redirect LDRs to clean_byte_bank)
-              syslog(LOG_ERR, "[WIRETAP] Native GumStalker initialized. Ready to shadow memory.");
+              syslog(LOG_ERR, "[WIRETAP] Native Gum initialized.");
           }
           """
           
           code = injection + "\n" + code
-          # Remove the default gum_init_embedded since we call it ourselves now
           code = code.replace("gum_init_embedded ();", "// gum_init_embedded handled by wiretap")
           
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "w") as f:
@@ -93,25 +90,16 @@ jobs:
           ./configure --host=ios-arm64
           make || true
 
-      - name: Assemble REGeared.framework
+      - name: Prepare Trojan Horse Dylib
         run: |
-          mkdir -p REGeared.framework/ss
-          find build -name "frida-gadget.dylib" -exec cp {} REGeared.framework/REGeared \;
-          if [ ! -f REGeared.framework/REGeared ]; then
-            find build -name "libfrida-gadget-raw.dylib" -exec cp {} REGeared.framework/REGeared \;
+          mkdir payload
+          find build -name "frida-gadget.dylib" -exec cp {} payload/libswiftCoreHaptics.dylib \;
+          if [ ! -f payload/libswiftCoreHaptics.dylib ]; then
+            find build -name "libfrida-gadget-raw.dylib" -exec cp {} payload/libswiftCoreHaptics.dylib \;
           fi
-          
-          # Wire the Gadget to load build.js for the UI/Mods
-          cat << "EOF" > REGeared.framework/REGeared.config
-          {
-            "interaction": { "type": "script", "path": "ss/build.js", "on_change": "ignore" }
-          }
-          EOF
-          
-          echo "console.log('[WIRETAP] build.js active. Drawing menus...');" > REGeared.framework/ss/build.js
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: REGeared-framework
-          path: REGeared.framework
+          name: libswiftCoreHaptics
+          path: payload/libswiftCoreHaptics.dylib
