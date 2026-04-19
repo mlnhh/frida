@@ -22,7 +22,7 @@ jobs:
           npm install -g frida-compile
           python3 -m pip install setuptools --break-system-packages
 
-      - name: Inject The Matrix Dodge (Signal Handler)
+      - name: Inject Native Byte Bank & Stalker
         run: |
           python3 -c '
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "r") as f:
@@ -30,41 +30,53 @@ jobs:
           
           injection = """
           #include <gum/gum.h>
-          #include <signal.h>
+          #include <mach-o/dyld.h>
+          #include <mach-o/getsect.h>
           #include <syslog.h>
-          #include <unistd.h>
+          #include <string.h>
           
-          // The Bullet Catcher
-          static void poison_pill_handler(int sig, siginfo_t *info, void *context) {
-              if (info->si_addr == (void *)0x123456789a00) {
-                  syslog(LOG_ERR, "[WIRETAP] THE MATRIX DODGE: Caught Promon jumping to 0x123456789a00!");
-                  syslog(LOG_ERR, "[WIRETAP] Anti-cheat kill-thread is now permanently frozen.");
-                  
-                  // Put the thread that tried to kill the app into a permanent coma
-                  while (1) { sleep(1); }
-              } else {
-                  // If it is a normal crash, let it happen so we do not break the game
-                  syslog(LOG_ERR, "[WIRETAP] Standard crash detected at %p", info->si_addr);
-                  signal(sig, SIG_DFL);
-              }
-          }
+          // Global Pointers for the Memory Shadow
+          static gpointer clean_byte_bank = NULL;
+          static gsize text_segment_size = 0;
+          static gpointer real_text_base = NULL;
           
           __attribute__((constructor))
-          static void setup_wiretaps(void) {
-              syslog(LOG_ERR, "[WIRETAP] Matrix Signal Handler active. Waiting for poison pill...");
+          static void establish_byte_bank(void) {
+              syslog(LOG_ERR, "[WIRETAP] NATIVE GADGET AWAKE. Establishing Byte Bank...");
               
-              struct sigaction sa;
-              sa.sa_flags = SA_SIGINFO;
-              sa.sa_sigaction = poison_pill_handler;
-              sigemptyset(&sa.sa_mask);
+              // 1. Find the laser binary in RAM instantly
+              const struct mach_header_64 *header = (const struct mach_header_64 *)_dyld_get_image_header(0);
+              if (!header) {
+                  syslog(LOG_ERR, "[WIRETAP] FATAL: Could not find main executable header.");
+                  return;
+              }
               
-              // Trap the specific hardware faults Promon uses to kill the app
-              sigaction(SIGSEGV, &sa, NULL);
-              sigaction(SIGBUS, &sa, NULL);
+              // 2. Parse the Mach-O to find the exact __TEXT segment (the executable code Promon hashes)
+              unsigned long text_size;
+              uint8_t *text_data = getsectiondata(header, "__TEXT", "__text", &text_size);
+              
+              if (text_data && text_size > 0) {
+                  real_text_base = (gpointer)text_data;
+                  text_segment_size = (gsize)text_size;
+                  
+                  // 3. Allocate the hidden vault and take the clean snapshot BEFORE mods apply
+                  clean_byte_bank = g_malloc(text_segment_size);
+                  memcpy(clean_byte_bank, real_text_base, text_segment_size);
+                  
+                  syslog(LOG_ERR, "[WIRETAP] BYTE BANK SECURED! Copied %lu bytes to hidden vault at %p", text_size, clean_byte_bank);
+              }
+              
+              // 4. Initialize Frida Gum natively
+              gum_init_embedded();
+              
+              // (Stalker Transformer Logic will hook into Gum here to redirect LDRs to clean_byte_bank)
+              syslog(LOG_ERR, "[WIRETAP] Native GumStalker initialized. Ready to shadow memory.");
           }
           """
           
           code = injection + "\n" + code
+          # Remove the default gum_init_embedded since we call it ourselves now
+          code = code.replace("gum_init_embedded ();", "// gum_init_embedded handled by wiretap")
           
           with open("subprojects/frida-core/lib/gadget/gadget-glue.c", "w") as f:
               f.write(code)
@@ -89,13 +101,14 @@ jobs:
             find build -name "libfrida-gadget-raw.dylib" -exec cp {} REGeared.framework/REGeared \;
           fi
           
+          # Wire the Gadget to load build.js for the UI/Mods
           cat << "EOF" > REGeared.framework/REGeared.config
           {
-            "interaction": { "type": "script", "path": "ss/load.lebronjs", "on_change": "ignore" }
+            "interaction": { "type": "script", "path": "ss/build.js", "on_change": "ignore" }
           }
           EOF
           
-          echo "console.log('[WIRETAP] JS Bridge Active');" > REGeared.framework/ss/load.lebronjs
+          echo "console.log('[WIRETAP] build.js active. Drawing menus...');" > REGeared.framework/ss/build.js
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
